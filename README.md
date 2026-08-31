@@ -1,126 +1,68 @@
-# Pairs Trading Strategy Notes
+# Simple Pairs Trading Strategy
 
-## Project Summary
+This project implements the strategy from `4. Pairs Trading Strategy.pdf` in a beginner-friendly way.
 
-This project implements a simple statistical arbitrage strategy based on pairs trading and cointegration. The main idea is to identify two assets whose prices have historically maintained a stable long-run relationship, then trade temporary deviations from that relationship.
+It does four things:
 
-If the spread between the two assets becomes unusually high, the strategy shorts the relatively expensive asset and buys the relatively cheap asset. If the spread becomes unusually low, it does the opposite. The trade is closed when the spread mean-reverts toward normal.
+1. Finds stock pairs that may be cointegrated.
+2. Builds a spread and z-score trading signal.
+3. Backtests long/short mean-reversion trades.
+4. Saves tables you can inspect: candidate pairs, trade history, and performance metrics.
 
-This is a research/backtesting project, not a live trading system or financial advice.
+This is for learning and research. It is not financial advice and it is not a guarantee of profit.
 
-## Strategy Logic
+## The Trading Idea
 
-For a pair of assets `A` and `B`, the strategy works with log prices:
+Pairs trading looks for two assets with a stable relationship. When the relationship stretches too far, the strategy bets that it will move back toward normal.
+
+For a pair `A` and `B`, the project estimates:
 
 ```text
 log(A) = intercept + hedge_ratio * log(B)
 ```
 
-The hedge ratio is estimated using ordinary least squares regression. After estimating the relationship, the spread is:
+Then it calculates:
 
 ```text
 spread = log(A) - intercept - hedge_ratio * log(B)
+zscore = (spread - rolling_average_spread) / rolling_spread_std
 ```
 
-The spread is then normalized into a rolling z-score:
+Trading rules:
 
 ```text
-zscore = (spread - rolling_mean(spread)) / rolling_std(spread)
+If zscore > entry threshold:
+    short A and buy B
+
+If zscore < -entry threshold:
+    buy A and short B
+
+If abs(zscore) < exit threshold:
+    close the trade
 ```
 
-The z-score measures how unusual the current spread is compared with its recent history.
-
-## Trading Rules
-
-The strategy uses threshold-based mean-reversion rules:
+## Project Files
 
 ```text
-If zscore > entry_z:
-    Short A and buy B
-
-If zscore < -entry_z:
-    Buy A and short B
-
-If abs(zscore) < exit_z:
-    Close the trade
+run_project.py                 Main command-line runner
+src/pairs_trading/data.py      Data loading and demo data generation
+src/pairs_trading/stats.py     Hedge ratio and cointegration logic
+src/pairs_trading/signals.py   Spread, z-score, and position rules
+src/pairs_trading/backtest.py  Backtesting engine
+src/pairs_trading/metrics.py   Performance metrics
+tests/test_pairs_trading.py    Basic automated tests
+outputs/                       Generated research outputs
 ```
 
-The project also includes a maximum holding period, so a trade can be forced closed if it does not mean-revert quickly enough.
+## Quick Start
 
-## Cointegration
-
-Correlation is not enough for pairs trading. Two stocks can be highly correlated but still drift apart over time.
-
-Cointegration is stronger. It means two price series may each move around individually, but a combination of them remains relatively stable. In this project, candidate pairs are selected by testing whether the residual spread appears mean-reverting.
-
-The project includes an Engle-Granger-style cointegration workflow:
-
-1. Estimate the hedge ratio between two log-price series.
-2. Construct the residual spread.
-3. Test whether the spread appears stationary/mean-reverting.
-4. Keep pairs whose p-values pass a selected threshold.
-
-## Backtesting
-
-The backtest simulates how the strategy would have performed historically. It includes:
-
-- Next-period execution logic to reduce lookahead bias.
-- Transaction costs in basis points.
-- Maximum holding period.
-- Daily strategy returns.
-- Cumulative equity curve.
-- Trade-by-trade logs.
-
-The project separates the data into in-sample and out-of-sample periods:
-
-```text
-In-sample:
-    Used to discover pairs and tune parameters.
-
-Out-of-sample:
-    Used to test whether the strategy works on unseen data.
-```
-
-This is important because a strategy that only works on the data used to design it may be overfit.
-
-## Parameters Tested
-
-The project supports parameter sensitivity analysis across:
-
-- Cointegration p-value threshold.
-- Rolling lookback window.
-- Entry z-score threshold.
-- Exit z-score threshold.
-- Transaction cost assumption.
-- Maximum holding period.
-
-The default pipeline chooses the best in-sample parameter setting from a small grid, then evaluates the selected configuration out of sample.
-
-## Performance Metrics
-
-The project reports:
-
-- Total return.
-- Annualized return.
-- Annualized volatility.
-- Sharpe ratio.
-- Maximum drawdown.
-- Number of entries and exits.
-- Turnover.
-- Win rate.
-- Average trade return.
-
-It also creates a simple equal-weight portfolio equity curve across selected pairs.
-
-## Files Produced
-
-The main command is:
+Run the offline synthetic-data demo:
 
 ```bash
 python3 run_project.py
 ```
 
-The generated outputs include:
+This creates:
 
 ```text
 outputs/demo_prices.csv
@@ -134,64 +76,135 @@ outputs/sensitivity_analysis.csv
 outputs/portfolio_equity.csv
 ```
 
-The project also includes unit tests:
+Run on real S&P 500 constituent data:
+
+```bash
+python3 RunCodes.py --sp500 --max-tickers 50 --output-dir outputs_real --start 2018-01-01 --end 2026-08-31 --max-pairs 5 --cost-bps 10
+```
+
+`RunCodes.py` is included as a compatibility wrapper for reviewers. It calls the same code as `run_project.py`.
+
+Run tests:
 
 ```bash
 python3 -m unittest discover tests
 ```
 
-## Current Demo Results
+## Using Real Stock Data
 
-The current demo uses synthetic/offline data, so the results are mainly for validating the workflow and learning the mechanics. The synthetic data intentionally contains at least one pair with a stable relationship.
+Create a CSV with:
 
-Example selected pair:
+- First column: dates
+- Other columns: ticker prices
 
-```text
-Pair: ALPHA / BETA
-Hedge ratio: about 1.0263
-Cointegration p-value: about 1.29e-16
-Selected parameters: lookback 60, entry z-score 1.5, exit z-score 0.25
-```
-
-Out-of-sample demo metrics for `ALPHA / BETA`:
+Example:
 
 ```text
-Total return: about 135.1%
-Annualized return: about 122.1%
-Annualized volatility: about 34.4%
-Sharpe ratio: about 3.55
-Max drawdown: about -9.8%
-Win rate: about 93.3%
+date,KO,PEP,V,MA
+2020-01-02,48.1,126.7,188.7,300.5
+2020-01-03,47.8,125.9,186.9,297.2
 ```
 
-These numbers should not be interpreted as realistic live trading results because the data is generated. The next step would be replacing demo data with real stock data and checking whether results survive transaction costs, slippage, liquidity constraints, and true out-of-sample testing.
+Then run:
 
-## Possible Next Improvements
+```bash
+python3 run_project.py --price-csv your_prices.csv
+```
 
-Useful extensions would include:
+You can also download a specific real-stock universe:
 
-- Real S&P 500 historical price data.
-- Adjusted close prices from `yfinance` or another data vendor.
-- Charts for spread, z-score, trades, and equity.
-- Stricter multiple-testing controls.
-- More realistic slippage and short-borrow costs.
-- Portfolio risk limits.
-- Paper-trading mode before any live trading.
+```bash
+python3 RunCodes.py --tickers KO,PEP,V,MA,XOM,CVX --output-dir outputs_real
+```
 
-## Key Takeaway
-
-The project demonstrates a complete beginner quant workflow:
+## Important Parameters
 
 ```text
-Hypothesis
--> data
--> cointegration test
--> signal construction
--> backtest
--> transaction costs
--> parameter sensitivity
--> out-of-sample validation
--> performance analysis
+--p-value              Cointegration threshold. Lower is stricter.
+--sp500                Download current S&P 500 constituent prices.
+--tickers              Download a comma-separated custom ticker list.
+--start                Download start date.
+--end                  Download end date.
+--max-tickers          Cap the S&P 500 universe for a manageable run.
+--lookback             Rolling window for z-score calculation.
+--entry-z              How extreme the spread must be before entering.
+--exit-z               How close to normal before exiting.
+--cost-bps             Transaction cost in basis points.
+--max-holding-days     Force-exit trades after this many days.
+--no-optimize          Use your fixed parameters instead of grid-searching in-sample.
 ```
 
-The main lesson is not that this exact strategy is guaranteed to make money. The value is learning how to structure, test, and evaluate a trading idea without accidentally overfitting or using future information.
+Example:
+
+```bash
+python3 run_project.py --entry-z 1.5 --exit-z 0.25 --cost-bps 10
+```
+
+By default, the final out-of-sample backtest uses the best in-sample settings from the sensitivity grid. Add `--no-optimize` if you want to force the exact parameter values you passed on the command line.
+
+## How to Read the Results
+
+`cointegrated_pairs.csv` shows candidate pairs discovered in the training period.
+
+`cointegration_tests_all_pairs.csv` shows every pair tested, including pairs rejected by the threshold.
+
+`backtest_*.csv` shows daily values:
+
+- `spread`
+- `zscore`
+- `position`
+- `strategy_return`
+- `transaction_cost`
+- `equity`
+
+`trade_log_*.csv` shows one row per trade.
+
+`performance_metrics.csv` summarizes:
+
+- total return
+- annualized return
+- volatility
+- Sharpe ratio
+- max drawdown
+- entries and exits
+- win rate
+- average trade return
+
+`sensitivity_analysis.csv` shows how performance changes across lookback, entry, and exit settings.
+
+`in_sample_out_of_sample.csv` compares the training-period result with the unseen testing-period result.
+
+`portfolio_equity.csv` combines selected pair returns into a simple equal-weight portfolio.
+
+## Real Data Sample Run
+
+I ran the project on a 50-stock sample of current S&P 500 constituents using Yahoo Finance adjusted close prices from 2018-01-01 through 2026-08-31. The pipeline selected pairs in the in-sample period, optimized parameters in-sample, then evaluated them out-of-sample with 10 bps transaction costs.
+
+Example out-of-sample results from `outputs_real/performance_metrics.csv`:
+
+```text
+Pair       Total Return    Sharpe    Max Drawdown
+AMP/APH       -18.65%      -0.23       -65.31%
+ABT/AWK       -35.77%      -0.72       -38.81%
+ATO/MMM       -25.53%      -0.53       -45.78%
+ACN/GOOGL     -30.16%      -0.40       -68.78%
+ACN/GOOG      -67.08%      -1.02       -75.51%
+```
+
+These real-data results are intentionally shown separately from the synthetic demo. They suggest the simple version of the strategy does not currently survive out-of-sample testing on this sample, which is an important and realistic quant research finding.
+
+## Notes About Results
+
+The default `python3 run_project.py` command uses synthetic demo data. Those numbers are only meant to prove that the pipeline works and to make the trading logic easy to inspect.
+
+For resume/GitHub credibility, use the real-data command and discuss the results from `outputs_real/`, not the synthetic ALPHA/BETA output. Very high Sharpe ratios on synthetic data should not be presented as real strategy performance.
+
+## What to Improve Next
+
+Good next upgrades:
+
+1. Add charts for spread, z-score, and equity.
+2. Add stricter multiple-testing controls.
+3. Add survivorship-bias-aware historical S&P 500 membership.
+4. Add short-borrow costs and slippage assumptions.
+5. Add paper-trading mode before any live trading.
