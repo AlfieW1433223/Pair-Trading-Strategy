@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.DS_Store
+.env
+venv/
+.venv/
+work/vendor/
+outputs/backtest_*.csv
+outputs/trade_log_*.csv
+outputs/demo_prices.csv
+outputs/real_sp500_prices.csv
+outputs/input_prices_reference.csv
